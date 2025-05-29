@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>∫ ℙ Λ Ϲ Σ β ℒ Ø β</title>
+  <style>
+    body { margin: 0; background: #000; overflow: hidden; cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><line x1='12' y1='0' x2='12' y2='24' stroke='%23f80' stroke-width='2'/><line x1='0' y1='12' x2='24' y2='12' stroke='%23f80' stroke-width='2'/></svg>"), crosshair; }
+    canvas { position: absolute; width: 100%; height: 100%; display: block; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+<canvas id="globeCanvas"></canvas>
+<script>
+const canvas = document.getElementById('globeCanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+
+// (your whole 3D code stays the same, no changes here)
+
+const starGeometry = new THREE.BufferGeometry();
+const starCount = 2000;
+const starVertices = [];
+const sphereRadius = 50;
+while (starVertices.length < starCount * 3) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = sphereRadius + (Math.random() - 0.5) * 2;
+  const x = r * Math.sin(phi) * Math.cos(theta);
+  const y = r * Math.sin(phi) * Math.sin(theta);
+  const z = r * Math.cos(phi);
+  starVertices.push(x, y, z);
+}
+starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.003 });
+const starField = new THREE.Points(starGeometry, starMaterial);
+scene.add(starField);
+
+const flyStars = [];
+const flyStarMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.005 });
+
+let dustField;
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.z = 3;
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+const material = new THREE.MeshStandardMaterial({ color: 0xffa300, flatShading: true, metalness: 0.3, roughness: 0.6, transparent: true, opacity: 1.00, vertexColors: true });
+const simplex = new SimplexNoise();
+const clock = new THREE.Clock();
+
+scene.add(new THREE.AmbientLight(0x222222));
+const hemiLight = new THREE.HemisphereLight(0x000000, 0xffae42, 0.2);
+scene.add(hemiLight);
+const dirLight = new THREE.DirectionalLight(0xffae42, 1.2);
+dirLight.position.set(2, 2, 1);
+scene.add(dirLight);
+
+let mesh, geometry, basePos, normals;
+let isDragging = false, prevX = 0, prevY = 0;
+let theta = 0, phi = 0, velX = 0, velY = 0;
+const friction = 0.99, threshold = 0.0001;
+
+let userZoom = 1.0;
+
+function createSphere() {
+  geometry = new THREE.IcosahedronGeometry(1, 5);
+  basePos = geometry.attributes.position.array.slice();
+  normals = geometry.attributes.normal.array;
+
+  const vertexColors = [];
+  for (let i = 0; i < geometry.attributes.position.count; i++) {
+    vertexColors.push(1, 0.682, 0.259);
+  }
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(vertexColors, 3));
+
+  material.vertexColors = true;
+  mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
+  mesh.scale.setScalar(0.5);
+}
+
+createSphere();
+
+const dustMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.0015, vertexColors: true });
+const dustGeometry = new THREE.BufferGeometry();
+const dustCount = 80;
+const dustVertices = [];
+for (let i = 0; i < dustCount; i++) {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 3.0 + Math.random() * 1.5;
+  const height = (Math.random() - 0.5) * 1.0;
+  dustVertices.push(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
+}
+dustGeometry.setAttribute('position', new THREE.Float32BufferAttribute(dustVertices, 3));
+const dustColors = [];
+for (let i = 0; i < dustCount; i++) {
+  dustColors.push(1, 1, 1);
+}
+dustGeometry.setAttribute('color', new THREE.Float32BufferAttribute(dustColors, 3));
+dustField = new THREE.Points(dustGeometry, dustMaterial);
+scene.add(dustField);
+
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (!mesh) return;
+  if (e.deltaY < 0) {
+    userZoom *= 1.1;
+  } else {
+    userZoom *= 0.9;
+    if (userZoom < 0.1) userZoom = 0.1;
+  }
+}, { passive: false });
+
+canvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  prevX = e.clientX;
+  prevY = e.clientY;
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (isDragging) {
+    const dx = (e.clientX - prevX) * 0.005;
+    const dy = (e.clientY - prevY) * 0.005;
+    theta += dx;
+    phi += dy;
+    velX = dx;
+    velY = dy;
+    prevX = e.clientX;
+    prevY = e.clientY;
+    mesh.rotation.set(phi, theta, 0);
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  isDragging = false;
+});
+
+canvas.addEventListener('mouseleave', () => {
+  isDragging = false;
+});
+
+function animate() {
+  camera.position.z = 3 + Math.sin(clock.elapsedTime * 0.3) * 0.07;
+
+  const breathing = 1.0 + Math.sin(clock.elapsedTime * 0.5) * 0.03;
+  const totalScale = userZoom * breathing * 0.5;
+  mesh.scale.setScalar(totalScale);
+  dustField.scale.setScalar(totalScale);
+
+  const colorAttr = dustGeometry.attributes.color;
+  for (let i = 0; i < dustCount; i++) {
+    const r = colorAttr.getX(i);
+    const g = colorAttr.getY(i);
+    const b = colorAttr.getZ(i);
+    const target = Math.random() < 0.001 ? [1, 1, 1] : [1, 0.682, 0.259];
+    colorAttr.setXYZ(
+      i,
+      THREE.MathUtils.lerp(r, target[0], 0.005),
+      THREE.MathUtils.lerp(g, target[1], 0.005),
+      THREE.MathUtils.lerp(b, target[2], 0.005)
+    );
+  }
+  colorAttr.needsUpdate = true;
+
+  starField.rotation.y = theta * 0.1;
+  starField.rotation.x = phi * 0.1;
+
+  const dt = clock.getDelta();
+  const t = clock.elapsedTime * 0.2;
+
+  const colorAttrSphere = geometry.attributes.color;
+  for (let i = 0; i < colorAttrSphere.count; i++) {
+    const r = colorAttrSphere.getX(i);
+    const g = colorAttrSphere.getY(i);
+    const b = colorAttrSphere.getZ(i);
+    colorAttrSphere.setXYZ(
+      i,
+      THREE.MathUtils.lerp(r, 1.0, 0.02),
+      THREE.MathUtils.lerp(g, 0.682, 0.02),
+      THREE.MathUtils.lerp(b, 0.259, 0.02)
+    );
+  }
+  colorAttrSphere.needsUpdate = true;
+
+  const pos = geometry.attributes.position.array;
+  for (let i = 0; i < pos.length; i += 3) {
+    const ox = basePos[i], oy = basePos[i + 1];
+    const n = simplex.noise3D(ox * 1.2, oy * 1.2, t) * 0.13;
+    const d = 1 + n;
+    pos[i] = normals[i] * d;
+    pos[i + 1] = normals[i + 1] * d;
+    pos[i + 2] = normals[i + 2] * d;
+  }
+  geometry.attributes.position.needsUpdate = true;
+
+  if (!isDragging) {
+    if (Math.abs(velX) > threshold || Math.abs(velY) > threshold) {
+      theta += velX;
+      phi += velY;
+      velX *= friction;
+      velY *= friction;
+    } else {
+      theta += dt * 0.075;
+      phi += dt * 0.0375;
+    }
+    mesh.rotation.set(phi, theta, 0);
+  }
+
+  dustField.rotation.copy(mesh.rotation);
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// Cursor auto-hide after 5s inactivity
+let cursorTimeout;
+function hideCursor() {
+  document.body.style.cursor = 'none';
+}
+function resetCursorTimer() {
+  document.body.style.cursor = 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\'><line x1=\'12\' y1=\'0\' x2=\'12\' y2=\'24\' stroke=\'%23f80\' stroke-width=\'2\'/><line x1=\'0\' y1=\'12\' x2=\'24\' y2=\'12\' stroke=\'%23f80\' stroke-width=\'2\'/></svg>"), crosshair';
+  clearTimeout(cursorTimeout);
+  cursorTimeout = setTimeout(hideCursor, 5000);
+}
+['mousemove', 'mousedown', 'wheel', 'keydown'].forEach(evt => {
+  window.addEventListener(evt, resetCursorTimer);
+});
+resetCursorTimer();
+</script>
+</body>
+</html>
